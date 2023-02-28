@@ -1,0 +1,50 @@
+Start-Transcript
+$SQLServer = "DEFRNVMPEXMSG11"
+$DB = "M365Team"
+
+$DEUGroupsQuery = "select Groupid,mail from M365Groups 
+where resourceProvisioningOptions = 'Team'
+and preferredDataLocation = 'DEU'
+and Action is null
+and isDeleted = 0
+and Exception = 0"
+
+$DEUGroups = Invoke-SQLCmd -Query $DEUGroupsQuery -ServerInstance $SQLServer -Database $DB
+
+$DEUGroups = $DEUGroups | Select-Object -First 3
+foreach ($group in $DEUGroups ) {
+  $group = $group.Groupid
+  $mail = $group.mail
+  $exgroup = (Get-UnifiedGroup $group)
+  $EA13 = $exgroup.CustomAttribute13
+  if (!$EA13 -and $exgroup) {          
+    try {
+      Set-UnifiedGroup $groupid -CustomAttribute13 "DEU" -errorAction stop
+      $updatequery = "Update M365Groups set EA13 =  'DEU', action = 'Completed' where Groupid = '$group'"
+      Invoke-SQLCmd -Query $updatequery -ServerInstance $SQLServer -Database $DB
+      write-host "EA13 set to group $mail"
+    }
+    catch {
+      write-host "Error when updating the EA13 for $mail"
+      $updatequery = "Update M365Groups  action = 'failed' where Groupid = '$group'"
+      Invoke-SQLCmd -Query $updatequery -ServerInstance $SQLServer -Database $DB
+    }
+      
+  }
+  elseif ($EA13) {
+
+    try {
+      $updatequery = "Update M365Groups set EA13 =  '$EA13', action = 'Completed' where Groupid = '$group'"
+      Invoke-SQLCmd -Query $updatequery -ServerInstance $SQLServer -Database $DB
+      write-host "EA13 already updated for $mail. Updated it in the DB"
+    }
+    catch {
+      write-host "DB Update failed"
+      $updatequery = "Update M365Groups  action = 'failed' where Groupid = '$group'"
+      Invoke-SQLCmd -Query $updatequery -ServerInstance $SQLServer -Database $DB
+    }
+    
+  }
+
+}
+Stop-Transcript
